@@ -4,6 +4,16 @@
 
 本仓库独立发布，不是 GitHub fork。代码基于 [Epic0522/Codex-Remote-Contact](https://github.com/Epic0522/Codex-Remote-Contact) 扩展，默认引擎、MCP 工具、持久会话、权限与部署流程均围绕 WorkBuddy 设计；Codex 适配仅作为兼容路径保留，不代表两者功能完全一致。上游尚未声明许可证：公开源码不等同于已取得完整开源许可。见 [来源清单](docs/PROVENANCE.md) 和 [许可证说明](LICENSE-NOTICE.md)。
 
+## 本仓库的优化与完善
+
+本仓库在上述代码基础上做的优化与完善，集中在三处：
+
+- **把日历 / 待办自动化延伸到 Windows**：新增按 `process.platform` 自动选择的动作后端（`MacActionClient` / `WindowsActionClient` / 空实现），Windows 侧用本地 JSON 存储 + BurntToast 原生通知 + 任务计划程序一次性提醒，`MacActionClient` 保持不变。
+- **接通此前定义但未使用的能力**：`preflight()`（写入前的环境自检）和 `getContext()`（把已有日历 / 待办回读给模型做去重）原本已写好却全程未调用，现已接入群聊 / 私聊轮次与订阅提示词。
+- **统一日历 / 提醒写入的默认开关**：修正「默认关闭」在 worker、面板与控制台之间不一致的问题，默认关闭、按会话显式开启。
+
+详见下文 [Windows 适配（实验性）](#windows-适配实验性) 与 [本地可编辑结构](docs/LOCAL_CUSTOMIZATION.md)。
+
 ## 页面展示
 
 以下为项目真实前端的页面展示图，使用独立演示数据，由浏览器以屏幕样式渲染后转成图片。群号、昵称、消息、会话标识和表情均为合成内容，不连接真实 QQ 或模型，不包含部署者的聊天记录。
