@@ -70,6 +70,11 @@ export class MacActionClient {
       reminders: Array.isArray(parsed.reminders) ? parsed.reminders.slice(0, limit) : []
     };
   }
+
+  async completeReminder() {
+    // macOS Reminders completion is not yet wired through the gateway; the native app tracks it.
+    return false;
+  }
 }
 
 function reminderArguments(scriptPath, payload) {

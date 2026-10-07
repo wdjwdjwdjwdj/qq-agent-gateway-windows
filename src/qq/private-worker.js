@@ -346,24 +346,36 @@ export class PrivateWorker {
         || conversation.bootstrapRevision !== THREAD_INSTRUCTIONS_REVISION;
       // Read-only limits local filesystem access, not the gateway's scoped QQ MCP.
       const useMcpRead = !autoSubscriptionTurn && this.codex.supportsQqMcp === true;
-      let prompt = autoSubscriptionTurn
-        ? buildAutoSubscriptionPrompt(inputContexts, {
-            targetType: "private",
-            targetId: userId,
-            targetName: this.targetNameResolver(userId),
-            pendingMessages: work.messages,
-            allowAutomations: codexOptions.calendarRemindersEnabled,
-            includeBaseInstructions: includeBaseInstructions && !this.codex.supportsSystemPrompt,
-            sourceViaMcp,
-            sharedSystemInstructions: this.codex.supportsSystemPrompt === true
-          })
-        : buildPrivateTurnPrompt(work.messages, contexts, {
+      let prompt;
+      if (autoSubscriptionTurn) {
+        let existingItems = null;
+        if (codexOptions.calendarRemindersEnabled && this.automationClient) {
+          try {
+            existingItems = await this.automationClient.getContext({ horizonDays: 60, limit: 80 });
+          } catch {
+            existingItems = null;
+          }
+        }
+        prompt = buildAutoSubscriptionPrompt(inputContexts, {
+          targetType: "private",
+          targetId: userId,
+          targetName: this.targetNameResolver(userId),
+          pendingMessages: work.messages,
+          allowAutomations: codexOptions.calendarRemindersEnabled,
+          includeBaseInstructions: includeBaseInstructions && !this.codex.supportsSystemPrompt,
+          sourceViaMcp,
+          sharedSystemInstructions: this.codex.supportsSystemPrompt === true,
+          existingItems
+        });
+      } else {
+        prompt = buildPrivateTurnPrompt(work.messages, contexts, {
           userId,
           displayName: this.targetNameResolver(userId),
           security,
           includeBaseInstructions: includeBaseInstructions && !this.codex.supportsSystemPrompt && !useMcpRead,
           stickerCatalog: this.codex.supportsQqMcp ? [] : (this.stickerManager?.promptCatalog() || [])
         });
+      }
       const extraReadSections = [];
       if (!autoSubscriptionTurn && this.qzone) {
         if (this.qzone.isOwnerPostTurn(work.messages, work.trigger, "private", userId)) {
@@ -489,17 +501,44 @@ export class PrivateWorker {
       const automationResults = [];
       if (autoSubscriptionTurn) {
         const autoResult = autoTurn.autoResult;
-        for (const action of autoResult.actions) {
-          this.store.assertReplyEnabled(userId);
-          if (!this.automationClient) throw new Error("Calendar/Reminders automation is unavailable");
-          const sourceName = contexts.find((context) => context.sourceGroupId === action.sourceGroupId)?.sourceGroupName;
-          automationResults.push(await this.automationClient.execute(action, { sourceGroupId: action.sourceGroupId, sourceGroupName: sourceName }));
+        if (autoResult.actions.length && !this.automationClient) {
+          throw new Error("Calendar/Reminders automation is unavailable");
         }
-        const notification = autoResult.reply;
-        const confirmation = formatAutomationConfirmations(autoResult.actions, automationResults);
-        const text = [notification, confirmation].filter(Boolean).join("\n\n");
-        reply = text ? sanitizeGroupReply(text) : "";
-        displayReply = reply;
+        if (autoResult.actions.length && this.automationClient) {
+          let preflightReady = true;
+          if (typeof this.automationClient.preflight === "function") {
+            const preflight = await this.automationClient.preflight().catch(() => ({ ready: false }));
+            preflightReady = Boolean(preflight.ready);
+          }
+          if (!preflightReady) {
+            const warning = "⚠️ 日历/提醒自动化环境未就绪（请确认提醒通道可用；Windows 需安装 BurntToast 模块且本地存储可写）。通知已整理，但未写入日历/待办。";
+            reply = sanitizeGroupReply([autoResult.reply, warning].filter(Boolean).join("\n\n"));
+            displayReply = reply;
+          } else {
+            for (const action of autoResult.actions) {
+              this.store.assertReplyEnabled(userId);
+              const sourceName = contexts.find((context) => context.sourceGroupId === action.sourceGroupId)?.sourceGroupName;
+              try {
+                automationResults.push(await this.automationClient.execute(action, { sourceGroupId: action.sourceGroupId, sourceGroupName: sourceName }));
+              } catch (error) {
+                automationResults.push({
+                  externalItemId: null,
+                  result: `写入失败：${String(error?.message || error).split("\n")[0]}`,
+                  targetList: action.calendarName || "待办"
+                });
+              }
+            }
+            const notification = autoResult.reply;
+            const confirmation = formatAutomationConfirmations(autoResult.actions, automationResults);
+            const text = [notification, confirmation].filter(Boolean).join("\n\n");
+            reply = text ? sanitizeGroupReply(text) : "";
+            displayReply = reply;
+          }
+        } else {
+          const notification = autoResult.reply;
+          reply = notification ? sanitizeGroupReply(notification) : "";
+          displayReply = reply;
+        }
       } else {
         const parsed = parseQqDeliveryDirectives(resultText, {
           allowFiles: false,
@@ -728,6 +767,7 @@ function optionsForConversation(conversation) {
     contextTokenLimit: conversation.codexConfig?.contextTokenLimit || undefined,
     workingMode: "agent",
     permissionMode: conversation.codexConfig?.permissionMode || "workspaceWrite",
-    calendarRemindersEnabled: conversation.codexConfig?.calendarRemindersEnabled !== false
+    // G6: 默认关闭——只有显式 true 才开启日历/提醒自动化（与 README「默认关闭」一致）。
+    calendarRemindersEnabled: conversation.codexConfig?.calendarRemindersEnabled === true
   };
 }

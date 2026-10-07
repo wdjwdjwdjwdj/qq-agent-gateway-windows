@@ -7,7 +7,7 @@ import { compactMessageContext } from "./message-context.js";
 export function buildAutoSubscriptionPrompt(contexts, {
   targetType, targetId, targetName, includeBaseInstructions = false,
   pendingMessages = [], allowAutomations = true, sourceViaMcp = false,
-  sharedSystemInstructions = false
+  sharedSystemInstructions = false, existingItems = null
 } = {}) {
   const lines = [];
   if (includeBaseInstructions) {
@@ -45,6 +45,18 @@ export function buildAutoSubscriptionPrompt(contexts, {
       : `本轮仅处理只读来源群“${clean(source?.sourceGroupName) || "通知群"}”（${source?.sourceGroupId || "未知"}）。必须先直接调用已加载的 mcp__qq_gateway__read_source_messages 读取该群本轮消息，不要通过 ToolSearch 或 DeferExecuteTool 调用它；再依据工具返回内容总结。不能访问或概括其他来源群，也不能向来源群发送。`);
   } else {
     appendContexts(lines, contexts);
+  }
+  if (allowAutomations && existingItems && (existingItems.calendar?.length || existingItems.reminders?.length)) {
+    lines.push("", "【本会话已有的日历/待办（供去重参考，不计入通知）】");
+    for (const event of existingItems.calendar || []) {
+      const when = event.start ? `（${event.start}${event.location ? ` @ ${event.location}` : ""}）` : "";
+      lines.push(`- 日历${event.calendarName ? `·${event.calendarName}` : ""}：${event.title} ${when}`.trim());
+    }
+    for (const reminder of existingItems.reminders || []) {
+      const when = reminder.due ? `（截止 ${reminder.due}）` : "（无截止时间）";
+      lines.push(`- 待办：${reminder.title} ${when}`);
+    }
+    lines.push("若本轮通知与以上已有事项为同一件事，不要重复创建；缺失信息保持 null，禁止猜测。");
   }
   if (!sharedSystemInstructions) lines.push("", "只返回本轮要求的结构化结果：noticeSummaries 为每个来源群填写一条 {sourceGroupId, summary}，概括该来源的所有本轮消息；notify=true。没有当前会话消息时 reply 为空；没有合适的日历或待办动作时 actions 为空。不能只说已同步事项而省略通知摘要。");
   return lines.join("\n");

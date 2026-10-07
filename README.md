@@ -73,7 +73,7 @@ WorkBuddy 通过当前会话专属 MCP 读取消息和执行 QQ 操作，不直�
 
 ## 环境要求
 
-- macOS，Node.js 20.6+，Python 3.10+。
+- macOS（首选）或 Windows 10/11（实验性），Node.js 20.6+，Python 3.10+。Windows 适配见下方「Windows 适配（实验性）」。
 - 已安装、已登录 WorkBuddy / CodeBuddy CLI，模型调用消耗自己的账号额度。
 - 单独安装、登录 SnowLuma 或兼容 OneBot 的 QQ 桥；不附带这些产品或登录数据。
 - 容器文件发送和自动恢复需 Docker、Colima 和已经存在的 SnowLuma 容器，恢复脚本不会创建或重装它。
@@ -127,6 +127,62 @@ OneBot HTTP 事件上报地址为 http://127.0.0.1:3789/api/onebot/event，需�
 
 已有本地部署的源码更新、私人人格覆盖和各功能编辑入口见 [本地可编辑结构](docs/LOCAL_CUSTOMIZATION.md)。界面只维护一份源文件，实际账号与人格不写入公开模板。
 
+## Windows 适配（实验性）
+
+动作后端按 `process.platform` 自动选择：`darwin` 走 `MacActionClient`（Calendar.app / Reminders.app + osascript），`win32` / `cygwin` 走 `WindowsActionClient`，其他平台走空实现。无需改业务代码即可在 Windows 上跑日历 / 提醒自动化。
+
+### 环境要求（Windows）
+
+- Windows 10 / 11，Node.js 20.6+（仓库零生产 npm 依赖）。
+- 已安装、已登录 WorkBuddy / CodeBuddy CLI。
+- 任选一个兼容 OneBot 的 Windows QQ 桥（见下）。
+- 原生通知与定时提醒依赖 PowerShell 的 BurntToast 模块（可选；缺失时动作仍写入本地存储，仅跳过弹窗）。
+
+### QQ 桥替换（Windows）
+
+macOS 用 SnowLuma + Docker 容器；Windows 没有 SnowLuma，需换成 NTQQ 系 OneBot 实现，二者都通过同一份 OneBot 事件上报地址 `http://127.0.0.1:3789/api/onebot/event` 接入网关：
+
+- **LLOneBot**：在 NTQQ 客户端上装 LiteLoaderQQNT 插件，Win x64 有带 `node.exe` 的预编译包；适合已用 NTQQ 的桌面环境。
+- **NapCatQQ**：绿色版自带内置 QQ，可无头运行；适合只跑网关、不常开 QQ 界面的服务器式部署。
+
+任选其一，按它的文档配置正向 WebSocket / HTTP 与上报回调令牌，使其指向网关的 OneBot 事件地址与 `ONEBOT_ACCESS_TOKEN`。普通 OneBot 不一定支持空间、商城表情和上传扩展接口，需按所用桥单独核验。
+
+### 日历 / 提醒动作后端（Windows）
+
+`WindowsActionClient`（`src/automation/windows-actions.js`）不写 Apple 应用，而是：
+
+- 写入本地 JSON 存储 `runtime/win32-actions.json`（由 `src/automation/local-store.js` 维护，按 `actionId` 幂等去重），数据模型对齐 macOS 日历事件 / 提醒事项；
+- 尽力调用 `scripts/win32-actions.ps1`：用 BurntToast 发原生通知；对未来到期的提醒用 `schtasks.exe` 注册一次性任务到时弹窗；
+- 提供 `preflight()`（检查 BurntToast 与存储可用性）与 `getContext()`（回读已有事项供模型去重）。
+
+面板新增「日历/待办」页（`modules/web-console/public/client.html` 的 `#automation` 视图），可查看 upcoming 日历、pending 提醒并标记完成，数据来自 `GET /api/automation/items`。
+
+### 安装 BurntToast（可选）
+
+~~~powershell
+Install-Module -Name BurntToast -Scope CurrentUser -Force
+~~~
+
+### 登录后自启动（Windows）
+
+macOS 用 `launchd`；Windows 用任务计划程序。以管理员 PowerShell 运行：
+
+~~~powershell
+powershell -ExecutionPolicy Bypass -File modules/install-task-scheduler.ps1
+~~~
+
+该脚本注册登录触发的 `WorkBuddyQQGateway` 任务，等价于 macOS 的 `chat-hub-start.command`。手动前台启动：
+
+~~~powershell
+powershell -ExecutionPolicy Bypass -File modules/run-qq-only.ps1
+~~~
+
+### 已知差异
+
+- 没有 Apple 系统授权与「预先存在的日历 / 提醒列表」概念；Windows 用本地 JSON 存储替代，首次运行即创建。
+- 原生通知依赖 BurntToast；该模块不可用时不弹窗，但动作仍落盘。
+- 真实 QQ、BurntToast 与任务计划程序集成需在自己的 Windows 环境验收；CI 只验证可移植逻辑（Linux 跳过平台相关集成）。
+
 ## 不登录也能看演示
 
 ~~~bash
@@ -178,6 +234,7 @@ npm run audit:public
 - SnowLuma 未提供评论列表和指定评论回复接口时，网关不伪造这些能力。
 - 图片/文件上传受 QQ 和网络影响；已提交的发送不能撤回。动态结果不确定时不自动重试。
 - Apple 自动化需系统授权及预先存在的目标列表。路径权限、上传能力、macOS 隐私权限是三件不同的事。
+- Windows 没有 Apple 自动化：日历 / 提醒写入改为本地 JSON 存储（`runtime/win32-actions.json`）+ BurntToast 原生通知，未来到期提醒用任务计划程序一次性任务；BurntToast 缺失时动作仍落盘但不弹窗。
 
 ## 来源与许可
 

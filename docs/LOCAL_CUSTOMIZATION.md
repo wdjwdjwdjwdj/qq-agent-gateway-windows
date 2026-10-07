@@ -16,7 +16,7 @@
 | 通用人格模板 | `persona/core.json`、`examples.json` | 仅对未配置私人覆盖目录的部署生效 |
 | QQ 工具与行为权限 | `src/qq`、`src/security` | 测试通过后重启 Hub |
 | WorkBuddy 桥与执行参数 | `src/workbuddy`、`modules/workbuddy-agent/bridge.py` | 测试通过后重启 Hub |
-| 日历 / 提醒事项动作 | `src/automation`、`scripts/macos-notification-action.js` | 相应脚本与权限检查生效 |
+| 日历 / 提醒事项动作 | `src/automation`（macOS：`scripts/macos-notification-action.js`；Windows：`src/automation/windows-actions.js` + `scripts/win32-actions.ps1`） | 相应脚本与权限检查生效 |
 
 浏览器与原生客户端不再各存一份前端源文件。客户端构建只从网页目录复制资源到产物，不能反向覆盖源码。
 
@@ -73,6 +73,24 @@ WorkBuddy 切换模型、推理强度或上下文阈值时，会重连并续接�
 在已有部署升级时，不重新复制 `settings.example.json` 覆盖真实 settings，不删除运行目录、SDK 环境、会话映射或 QQ 容器。`vendor`、`build` 和旧项目 Git 历史不是公开发布内容，但不代表可随意删除正在使用的文件。
 
 清理旧会话必须先以群与私聊的真实 `threadId` 为保护名单，再核对 SDK 映射。不能按日期或“看起来像测试”删除其他 WorkBuddy / Codex 会话。发现未引用的网关会话时，停止对应写入进程后，将明确的文件移到项目外的私人备份目录；验证当前 thread 仍能续接后再恢复调度。
+
+## Windows 适配与动作后端切换
+
+动作后端由 `src/automation/backend.js` 的 `createActionBackend()` 按 `process.platform` 选择，调用方（`src/server.js`）无需感知平台：
+
+- `darwin` → `MacActionClient`（`src/automation/macos-actions.js`，写 Calendar.app / Reminders.app）
+- `win32` / `cygwin` → `WindowsActionClient`（`src/automation/windows-actions.js`，写本地 JSON + PowerShell 通知）
+- 其他 → `NullActionClient`（仅记录，不写任何外部状态）
+
+| 想修改什么 | 编辑位置 | 何时生效 |
+| --- | --- | --- |
+| Windows 日历 / 提醒动作 | `src/automation/windows-actions.js`、`scripts/win32-actions.ps1` | 重启 Hub |
+| Windows 本地存储结构与去重 | `src/automation/local-store.js`（`runtime/win32-actions.json`） | 重启 Hub |
+| 平台后端选择逻辑 | `src/automation/backend.js` | 重启 Hub |
+| Windows 自启动 / 前台启动 | `modules/install-task-scheduler.ps1`、`modules/run-qq-only.ps1` | 重新运行脚本 |
+| 面板「日历/待办」页 | `modules/web-console/public/client.html`、`client.js` | 网页刷新 |
+
+默认开关：`calendarRemindersEnabled` 默认 **关闭**（与 README「默认关闭」一致），需在每个会话的面板设置里明确开启；会话 `codexConfig` 中显式 `true` 才会写入日历 / 提醒。Windows 与 macOS 语义一致。
 
 ## 更新与验收
 

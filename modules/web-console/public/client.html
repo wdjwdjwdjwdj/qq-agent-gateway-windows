@@ -21,6 +21,7 @@
           <button id="toggleNavigationButton" class="button ghost topbar-button mobile-nav-toggle" type="button" aria-expanded="false" aria-controls="conversationSidebar">会话</button>
           <button id="globalSettingsButton" class="button ghost topbar-button" type="button">设置</button>
           <button id="qzoneButton" class="button ghost topbar-button" type="button" aria-pressed="false">QQ 空间</button>
+          <button id="automationButton" class="button ghost topbar-button" type="button" aria-pressed="false">日历/待办</button>
           <button id="stickerGalleryButton" class="button ghost topbar-button" type="button" aria-pressed="false">
             表情展示台 <span id="stickerGalleryButtonCount" class="button-count">0</span>
           </button>
@@ -295,6 +296,22 @@
             <div class="qzone-actions"><button id="saveQzoneButton" class="button primary" type="submit">保存 QQ 空间设置</button><span id="qzoneSaveStatus" role="status" aria-live="polite"></span></div>
           </form>
           <section class="qzone-history" aria-label="最近任务记录"><h3>最近任务</h3><div id="qzoneEvents"></div></section>
+        </div>
+      </section>
+
+      <section id="automationPanel" class="sticker-gallery panel" aria-labelledby="automationTitle" hidden>
+        <header class="gallery-heading">
+          <div>
+            <p class="eyebrow">CALENDAR &amp; REMINDERS</p>
+            <h2 id="automationTitle">本地日历 / 待办</h2>
+          </div>
+          <button id="closeAutomationButton" class="button ghost" type="button">返回会话</button>
+        </header>
+        <div class="gallery-scroll qzone-scroll">
+          <div id="automationPreflight" class="recognition-status idle" role="status" aria-live="polite"></div>
+          <div class="automation-actions"><button id="refreshAutomationButton" class="button ghost" type="button">刷新</button></div>
+          <section aria-label="即将到来的日历事件"><h3>即将到来的日历事件</h3><div id="automationCalendar"></div></section>
+          <section aria-label="未完成的待办"><h3>未完成的待办</h3><div id="automationReminders"></div></section>
         </div>
       </section>
 

@@ -6,6 +6,7 @@ const els = Object.fromEntries([
   "stickerLibraryButton", "stickerBlacklistButton", "stickerLibraryCount", "stickerBlacklistCount", "stickerLibraryHelp",
   "connectionBadge", "refreshButton", "agentDispatchToggle", "agentDispatchLabel", "qzoneButton", "stickerGalleryButton", "stickerGalleryButtonCount",
   "workspace", "qzonePanel", "closeQzoneButton", "qzoneBanner", "qzoneForm", "qzoneTarget", "qzoneAutoPost", "qzonePostTimes", "qzoneAutoEngage", "qzoneLastSeenTime", "saveQzoneButton", "qzoneSaveStatus", "qzoneEvents", "stickerGallery", "closeStickerGalleryButton", "stickerReadyCount", "stickerRecognizingCount", "stickerCommitCount", "stickerGalleryModel", "stickerRecognitionStatus", "stickerGalleryActionStatus", "stickerGalleryGrid",
+  "automationButton", "automationPanel", "closeAutomationButton", "automationPreflight", "refreshAutomationButton", "automationCalendar", "automationReminders",
   "groupCount", "agentGroupCount", "sourceCount", "groupList", "privateList", "sourceList",
   "addGroupButton", "groupForm", "groupCandidate", "groupFormStatus", "reloadGroupCandidatesButton", "saveGroupButton", "cancelGroupButton",
   "addPrivateButton", "privateForm", "privateUserId", "privateDisplayName", "privateFormStatus", "savePrivateButton", "cancelPrivateButton",
@@ -111,13 +112,18 @@ function agentName() { return state?.persona?.name || "老代"; }
 function renderView() {
   const galleryOpen = location.hash === "#stickers";
   const qzoneOpen = location.hash === "#qzone";
-  els.workspace.hidden = galleryOpen || qzoneOpen;
+  const automationOpen = location.hash === "#automation";
+  els.workspace.hidden = galleryOpen || qzoneOpen || automationOpen;
   els.stickerGallery.hidden = !galleryOpen;
   els.qzonePanel.hidden = !qzoneOpen;
+  els.automationPanel.hidden = !automationOpen;
   els.stickerGalleryButton.setAttribute("aria-pressed", String(galleryOpen));
   els.stickerGalleryButton.classList.toggle("selected", galleryOpen);
   els.qzoneButton.setAttribute("aria-pressed", String(qzoneOpen));
   els.qzoneButton.classList.toggle("selected", qzoneOpen);
+  els.automationButton.setAttribute("aria-pressed", String(automationOpen));
+  els.automationButton.classList.toggle("selected", automationOpen);
+  if (automationOpen) loadAutomation().catch(showError);
 }
 
 function renderQzone() {
@@ -454,17 +460,18 @@ function renderAgentSettings(item) {
     contextTokenLimit: state?.ai?.autoCompactTokenLimit,
     workingMode: "agent",
     permissionMode: "workspaceWrite",
-    calendarRemindersEnabled: true
+    // G6: 与 README「默认关闭」一致；加载到真实会话配置后会以实际值覆盖。
+    calendarRemindersEnabled: false
   };
   const model = modelInfo(config.model);
-  els.agentSettingsSummary.textContent = `${permissionModeLabel(config.permissionMode)} · ${model?.displayName || config.model || "默认"} · ${effortLabel(config.reasoningEffort)} · 自动化${config.calendarRemindersEnabled === false ? "关" : "开"}`;
+  els.agentSettingsSummary.textContent = `${permissionModeLabel(config.permissionMode)} · ${model?.displayName || config.model || "默认"} · ${effortLabel(config.reasoningEffort)} · 自动化${config.calendarRemindersEnabled === true ? "开" : "关"}`;
   const nextSignature = JSON.stringify([item.key, config, state?.ai?.availableModels, state?.ai?.contextTokenOptions, state?.ai?.permissionModeOptions]);
   if (!settingsDirty && settingsSignature !== nextSignature) {
     populateModelOptions(config.model);
     populateEffortOptions(config.reasoningEffort);
     populateContextOptions(config.contextTokenLimit);
     populatePermissionOptions(config.permissionMode, item.kind);
-    els.agentCalendarRemindersEnabled.checked = config.calendarRemindersEnabled !== false;
+    els.agentCalendarRemindersEnabled.checked = config.calendarRemindersEnabled === true;
     settingsSignature = nextSignature;
   }
   updateParameterExplanation(item);
@@ -953,6 +960,45 @@ els.closeQzoneButton.addEventListener("click", () => {
   history.replaceState(null, "", `${location.pathname}${location.search}`);
   renderView();
 });
+els.automationButton.addEventListener("click", () => { location.hash = "automation"; });
+els.closeAutomationButton.addEventListener("click", () => {
+  history.replaceState(null, "", `${location.pathname}${location.search}`);
+  renderView();
+});
+els.refreshAutomationButton.addEventListener("click", () => loadAutomation().catch(showError));
+els.automationReminders.addEventListener("click", async (event) => {
+  const btn = event.target.closest("button[data-complete]");
+  if (!btn) return;
+  const id = btn.getAttribute("data-complete");
+  btn.disabled = true;
+  try {
+    await api(`/api/automation/reminders/${encodeURIComponent(id)}/complete`, { method: "POST" });
+    await loadAutomation();
+  } catch (error) {
+    btn.disabled = false;
+    showError(error);
+  }
+});
+
+async function loadAutomation() {
+  const [items, preflight] = await Promise.all([
+    api("/api/automation/items").catch(() => ({ calendar: [], reminders: [] })),
+    api("/api/automation/preflight").catch(() => ({ ready: false }))
+  ]);
+  if (preflight.ready) {
+    els.automationPreflight.className = "recognition-status ok";
+    els.automationPreflight.textContent = "自动化环境就绪" + (preflight.burntToast ? "（提醒通道可用）" : "");
+  } else {
+    els.automationPreflight.className = "recognition-status idle";
+    els.automationPreflight.textContent = "自动化环境未就绪：" + (preflight.error ? preflight.error : "请确认提醒通道可用（Windows 需安装 BurntToast 且本地存储可写）");
+  }
+  els.automationCalendar.innerHTML = (items.calendar || []).length
+    ? items.calendar.map((e) => `<div class="subscription-row"><span>${escapeHtml(e.title)}</span><small>${escapeHtml(e.calendarName || "")} · ${escapeHtml(e.start || "")}${e.location ? " @ " + escapeHtml(e.location) : ""}</small></div>`).join("")
+    : '<p class="qzone-help">暂无即将到来的日历事件。</p>';
+  els.automationReminders.innerHTML = (items.reminders || []).length
+    ? items.reminders.map((r) => `<div class="subscription-row"><span>${escapeHtml(r.title)}</span><small>${r.due ? escapeHtml(r.due) : "无截止时间"}</small><button class="mini-button" data-complete="${escapeHtml(r.id)}" type="button">完成</button></div>`).join("")
+    : '<p class="qzone-help">暂无未完成的待办。</p>';
+}
 els.qzoneForm.addEventListener("change", () => { qzoneDirty = true; });
 els.qzoneForm.addEventListener("submit", async (event) => {
   event.preventDefault();

@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { MacActionClient } from "./automation/macos-actions.js";
+import { createActionBackend } from "./automation/backend.js";
 import { CodexClient } from "./codex/client.js";
 import { WorkBuddyClient } from "./workbuddy/client.js";
 import { PersonaStore } from "./persona/persona-store.js";
@@ -281,7 +281,7 @@ console.log(`agent engine: ${engineKind} (model=${codexModel}, effort=${codexEff
 let codexModels = engineKind === "workbuddy"
   ? fallbackWorkBuddyModels(codexModel, codexEffort)
   : fallbackCodexModels(codexModel, codexEffort);
-const automationClient = new MacActionClient();
+const automationClient = createActionBackend();
 const stickerLabeler = new EphemeralStickerLabeler({
   codex,
   stickerManager,
@@ -417,6 +417,22 @@ async function handleApi(req, res, url) {
   }
   if (req.method === "GET" && url.pathname === "/api/state") {
     sendJson(res, 200, publicState());
+    return;
+  }
+  if (req.method === "GET" && url.pathname === "/api/automation/preflight") {
+    const status = await automationClient.preflight().catch((error) => ({ ready: false, error: String(error?.message || error) }));
+    sendJson(res, 200, status);
+    return;
+  }
+  if (req.method === "GET" && url.pathname === "/api/automation/items") {
+    const items = await automationClient.getContext({ horizonDays: 90, limit: 200 }).catch(() => ({ calendar: [], reminders: [] }));
+    sendJson(res, 200, items);
+    return;
+  }
+  const completeReminder = /^\/api\/automation\/reminders\/([^/]+)\/complete$/u.exec(url.pathname);
+  if (req.method === "POST" && completeReminder) {
+    const ok = await automationClient.completeReminder(completeReminder[1]).catch(() => false);
+    sendJson(res, ok ? 200 : 404, { ok });
     return;
   }
   const diagnosticsMatch = /^\/api\/qq\/(groups|private)\/(\d+)\/diagnostics$/u.exec(url.pathname);
